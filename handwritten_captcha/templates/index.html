@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure X - Handwritten CAPTCHA Authentication</title>
+    
+    <!-- SEO Optimization -->
+    <meta name="description" content="Secure X high-fidelity biometric-style handwritten CAPTCHA login portal incorporating neural networks and helper ensemble verification.">
+    <meta name="theme-color" content="#0a0b10">
+    
+    <!-- Modern Typography from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Background futuristic particle-like mesh effects -->
+    <div class="network-bg">
+        <div class="light-orb orb-1"></div>
+        <div class="light-orb orb-2"></div>
+        <div class="light-orb orb-3"></div>
+    </div>
+
+    <div class="auth-wrapper">
+        <div class="auth-container">
+            <!-- Brand Logo / Header -->
+            <div class="brand-header">
+                <div class="brand-icon">
+                    <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                </div>
+                <h1 class="brand-title">SECURE <span class="accent-text">X</span></h1>
+                <p class="brand-subtitle">Advanced Multi-Factor Neural Verification Portal</p>
+            </div>
+
+            <!-- Main Auth Card -->
+            <div class="auth-card glass-panel" id="login-card">
+                <!-- STEP 1: USERNAME & PASSWORD FORM -->
+                <div class="form-step active" id="credentials-step">
+                    <h2 class="step-title">Access Console</h2>
+                    <p class="step-subtitle">Initialize authentication by entering system credentials.</p>
+                    
+                    <div class="form-group">
+                        <label for="username" class="form-label">System Username</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">
+                                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                            </span>
+                            <input type="text" id="username" class="form-input" placeholder="e.g. administrator" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password" class="form-label">Authorization Token / Password</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">
+                                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                            </span>
+                            <input type="password" id="password" class="form-input" placeholder="••••••••••••" required>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn primary-btn glow-btn" id="next-to-captcha">
+                        <span>Continue to Verification</span>
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                    </button>
+                </div>
+
+                <!-- STEP 2: HANDWRITTEN CAPTCHA CANVAS -->
+                <div class="form-step" id="captcha-step">
+                    <div class="captcha-header">
+                        <button type="button" class="back-btn" id="back-to-credentials" title="Change Credentials">
+                            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                        </button>
+                        <div class="captcha-status">
+                            <h2 class="step-title">Neural Verification</h2>
+                            <p class="step-subtitle">Draw characters manually for security confirmation.</p>
+                        </div>
+                    </div>
+
+                    <!-- Progress Indicator & Custom Bar -->
+                    <div class="progress-container">
+                        <div class="progress-details">
+                            <span class="progress-label" id="progress-text">Step 1 of 10</span>
+                            <span class="progress-percent" id="progress-pct">10%</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="progress-bar" style="width: 10%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- The Core CAPTCHA Canvas drawing setup -->
+                    <div class="captcha-layout">
+                        <div class="target-card">
+                            <span class="target-label">PLEASE DRAW</span>
+                            <div class="target-char-box">
+                                <h3 id="captcha-target" class="target-char animate-pop">?</h3>
+                            </div>
+                            <span class="target-hint" id="target-type">Lowercase Character</span>
+                        </div>
+
+                        <div class="canvas-block">
+                            <div class="canvas-container">
+                                <!-- Canvas MUST be exactly 224 x 224 px -->
+                                <canvas id="drawing-canvas" width="224" height="224"></canvas>
+                                <div class="canvas-grid-lines"></div>
+                                <div class="canvas-placeholder" id="canvas-placeholder">Draw here...</div>
+                            </div>
+                            
+
+                        </div>
+                    </div>
+
+                    <!-- Button panel -->
+                    <div class="button-group">
+                        <button type="button" class="btn secondary-btn" id="clear-btn">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path><line x1="18" y1="9" x2="12" y2="15"></line><line x1="12" y1="9" x2="18" y2="15"></line></svg>
+                            <span>Clear Canvas</span>
+                        </button>
+                        
+                        <button type="button" class="btn primary-btn glow-btn" id="next-char-btn">
+                            <span id="next-btn-text">Next Character</span>
+                            <svg id="next-btn-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </button>
+                    </div>
+
+                    <!-- Loading / Success Panels overlay inside glass card -->
+                    <div class="action-overlay hidden" id="action-overlay">
+                        <div class="overlay-spinner">
+                            <div class="double-bounce1"></div>
+                            <div class="double-bounce2"></div>
+                        </div>
+                        <h4 class="overlay-title" id="overlay-status-title">Authenticating...</h4>
+                        <p class="overlay-subtitle" id="overlay-status-sub">Evaluating drawings through AI ensemble decision engine</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Global dynamic alert banner -->
+            <div class="alert-banner hidden" id="alert-banner">
+                <span class="alert-icon">!</span>
+                <span class="alert-message" id="alert-text">Error validating credentials. Please try again.</span>
+                <button type="button" class="alert-close" id="alert-close">×</button>
+            </div>
+
+            <!-- Page footer -->
+            <div class="gateway-footer">
+                <p>System Protected by <span class="bold-text">Secure X Engine</span> • Quantum Resilient MFA</p>
+                <p class="sub-footer">Model Accuracy: 98.4% CNN • 99.2% Neural Ensemble</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main JavaScript Logic -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
