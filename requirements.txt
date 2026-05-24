@@ -7,3 +7,4 @@ numpy
 flask-cors
 gunicorn
 python-dotenv
+easyocr
