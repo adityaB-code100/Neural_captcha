@@ -1,8 +1,8 @@
-Flask==3.0.0
-torch==2.1.2
-torchvision==0.16.2
-timm==0.9.12
-Pillow==10.1.0
-numpy==1.26.2
-flask-cors==4.0.0
-gunicorn==21.2.0
+Flask
+torch
+torchvision
+timm
+Pillow
+numpy
+flask-cors
+gunicorn
