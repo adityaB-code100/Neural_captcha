@@ -150,12 +150,16 @@
             <!-- Page footer -->
             <div class="gateway-footer">
                 <p>System Protected by <span class="bold-text">Secure X Engine</span> • Quantum Resilient MFA</p>
-                <p class="sub-footer">Model Accuracy: 98.4% CNN • 99.2% Neural Ensemble</p>
+                <!-- <p class="sub-footer">Model Accuracy: 98.4% CNN • 99.2% Neural Ensemble</p> -->
             </div>
         </div>
     </div>
 
     <!-- Main JavaScript Logic -->
+     <script>
+    const BASE_URL = "{{ BASE_URL }}";
+</script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    
 </body>
 </html>

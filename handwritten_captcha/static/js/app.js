@@ -196,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
         overlaySub.textContent = "Configuring secure neural CAPTCHA node...";
         
         try {
-            const res = await fetch('/api/generate_captcha');
+            const res = await fetch(`${BASE_URL}/api/generate_captcha`);
             const data = await res.json();
             
             if (data.status === 'success') {
@@ -280,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = passwordInput.value.trim();
         
         try {
-            const response = await fetch('/api/verify_captcha', {
+            const response = await fetch(`${BASE_URL}/api/verify_captcha`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

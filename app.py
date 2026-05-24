@@ -15,7 +15,7 @@ app = Flask(
     template_folder='handwritten_captcha/templates',
     static_folder='handwritten_captcha/static'
 )
-
+app.config['BASE_URL'] = os.getenv("BASE_URL")
 # Enable CORS for secure AJAX calls
 CORS(app)
 
@@ -29,7 +29,7 @@ def index():
     """
     if session.get(settings.SESSION_USER_LOGGED_IN):
         return redirect(url_for('dashboard'))
-    return render_template('index.html')
+    return render_template('index.html',BASE_URL=app.config['BASE_URL'])
 
 @app.route('/dashboard')
 def dashboard():

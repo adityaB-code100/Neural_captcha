@@ -6,3 +6,4 @@ Pillow
 numpy
 flask-cors
 gunicorn
+python-dotenv
