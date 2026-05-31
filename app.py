@@ -2,8 +2,7 @@ import os
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 
-# Absolute minimum clean imports from our modular package
-# Completely encapsulates torch, easyocr, and ML models away from this script
+
 from handwritten_captcha.config import settings
 from handwritten_captcha.utils.captcha_logic import init_session_captcha, get_session_captcha, clear_session_captcha
 from handwritten_captcha.utils.engine import captcha_test
