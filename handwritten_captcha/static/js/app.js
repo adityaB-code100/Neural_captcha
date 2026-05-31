@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // CAPTCHA State Machine
     let captchaCharacters = []; // List of characters to draw (10 alphanumeric chars)
     let currentStepIndex = 0;   // Current active character drawing step (0-9)
-    let drawnImages = [];       // Array of 10 base64 drawings saved sequentially
+    let currentSessionId = null; // Session ID from server
 
     // Initialize Canvas Configuration
     const initCanvas = () => {
@@ -59,12 +59,10 @@ document.addEventListener('DOMContentLoaded', () => {
         placeholder.style.opacity = '0.6';
     };
 
-
-
     // Helper: Determine target character character class description
     const getCharacterTypeLabel = (char) => {
         if (!char) return "";
-        if (char.isdigit || (char >= '0' && char <= '9')) {
+        if (char >= '0' && char <= '9') {
             return "Numeric Digit";
         } else if (char === char.toUpperCase()) {
             return "Uppercase Character";
@@ -196,13 +194,13 @@ document.addEventListener('DOMContentLoaded', () => {
         overlaySub.textContent = "Configuring secure neural CAPTCHA node...";
         
         try {
-            const res = await fetch(`${BASE_URL}/api/generate_captcha`);
+            const res = await fetch(`${BASE_URL}/api/generate_captcha`, { credentials: 'include' });
             const data = await res.json();
             
             if (data.status === 'success') {
                 captchaCharacters = data.captcha_chars;
+                currentSessionId = data.session_id;
                 currentStepIndex = 0;
-                drawnImages = [];
                 
                 // Show canvas step
                 credentialsStep.classList.remove('active');
@@ -255,27 +253,81 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // 1. Save base64 string
+        // Save base64 string
         const base64Image = canvas.toDataURL('image/png');
-        drawnImages.push(base64Image);
         
-        // 2. Increment steps
+        // Submit individual image asynchronously
+        submitImage(currentSessionId, currentStepIndex, base64Image);
+        
+        // Increment steps
         if (currentStepIndex < 9) {
             currentStepIndex++;
             renderStep();
         } else {
-            // 3. Final Step: Submit Entire Form via AJAX
-            await submitVerification();
+            // Final Step: Start polling for session status
+            startPolling();
         }
     });
 
-    // API: AJAX canvas submit
-    const submitVerification = async () => {
+    const submitImage = async (sessionId, imageNum, base64Data) => {
+        try {
+            await fetch(`${BASE_URL}/api/submit_image`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    image_number: imageNum,
+                    image: base64Data
+                })
+            });
+        } catch (err) {
+            console.error(`Failed to submit image ${imageNum}`, err);
+        }
+    };
+
+    const startPolling = () => {
         hideAlert();
         actionOverlay.classList.remove('hidden');
         overlayTitle.textContent = "Verifying Identity...";
         overlaySub.textContent = "Analyzing handwriting vectors via neural network ensemble...";
         
+        pollSessionStatus();
+    };
+
+    const pollSessionStatus = async () => {
+        try {
+            const res = await fetch(`${BASE_URL}/api/session_status/${currentSessionId}`, { credentials: 'include' });
+            const data = await res.json();
+            
+            if (data.status === 'success') {
+                if (data.final_decision === 'Pending') {
+                    // Update UI with processing status if desired, then poll again
+                    setTimeout(pollSessionStatus, 1500);
+                } else if (data.final_decision === 'Pass') {
+                    // Call final verify to log in
+                    await submitVerification();
+                } else {
+                    // Fail
+                    actionOverlay.classList.add('hidden');
+                    showAlert("CAPTCHA verification failed. Draw clearer and try again.");
+                    loadCaptchaChallenge();
+                }
+            } else {
+                // Error from server
+                actionOverlay.classList.add('hidden');
+                showAlert(data.message || "Session error.");
+                loadCaptchaChallenge();
+            }
+        } catch (err) {
+            console.error(err);
+            // On network error during polling, just try again
+            setTimeout(pollSessionStatus, 1500);
+        }
+    };
+
+    // API: AJAX final verification
+    const submitVerification = async () => {
         const username = usernameInput.value.trim();
         const password = passwordInput.value.trim();
         
@@ -283,10 +335,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`${BASE_URL}/api/verify_captcha`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({
                     username: username,
                     password: password,
-                    images: drawnImages
+                    session_id: currentSessionId
                 })
             });
             
@@ -299,14 +352,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Slow redirection for rich UX completion
                 setTimeout(() => {
-                    window.location.href = data.redirect;
+                    // Prepend BASE_URL to ensure we navigate to the exact domain where the cookie was just set
+                    if (data.redirect.startsWith('/')) {
+                        window.location.href = BASE_URL + data.redirect;
+                    } else {
+                        window.location.href = data.redirect;
+                    }
                 }, 1200);
+            } else if (data.status === 'pending') {
+                 // edge case, shouldn't happen based on poll
+                 setTimeout(submitVerification, 1500);
             } else {
-                // Failure handler: reset CAPTCHA and drawing states
                 actionOverlay.classList.add('hidden');
-                showAlert(data.message || "CAPTCHA verification failed. Draw clearer and try again.");
-                
-                // Regenerate a brand new CAPTCHA challenge automatically
+                showAlert(data.message || "Verification failed.");
                 loadCaptchaChallenge();
             }
         } catch (err) {

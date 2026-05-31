@@ -18,7 +18,7 @@ def get_ocr_reader():
     if _OCR_READER is None and easyocr is not None:
         try:
             CustomLogger.info("Initializing Secondary Predictor (CPU mode)...")
-            _OCR_READER = easyocr.Reader(['en'], gpu=False)
+            _OCR_READER = easyocr.Reader(['en'], gpu=True)
             CustomLogger.success("Secondary Predictor initialized successfully!")
         except Exception as e:
             CustomLogger.error(f"Failed to initialize Secondary Predictor: {e}")
@@ -70,117 +70,98 @@ def predict_ocr(pil_image, target_char):
         CustomLogger.warning(f"Secondary parsing encountered warning: {e}")
         return "", 0.0
 
-def captcha_test(images, actual_text):
+def process_single_image(base64_img, target_char, char_index=0):
     """
-    The main execution function for Handwritten CAPTCHA Authentication.
-    Processes all 10 drawn images sequentially, runs the AI model prediction,
-    and applies a partial-match decision strategy (passes if >= 8 out of 10 match).
-    
-    Args:
-        images (list of str): 10 Base64-encoded strings representing user drawing canvas images.
-        actual_text (str): 10-character string representing the target CAPTCHA challenge.
-        
-    Returns:
-        bool: True if the ensemble correctly verifies at least 8 out of 10 characters, False otherwise.
+    Processes a single base64 image against a target character.
+    Returns a dict with predicted_text, confidence, is_correct, processing_time.
     """
     start_time = time.time()
-    CustomLogger.info(f"Initiating neural CAPTCHA authentication (10 characters, 8/10 partial-match allowed). Target: '{actual_text}'")
+    CustomLogger.info(f"Initiating neural processing for char index {char_index}. Target: '{target_char}'")
     
-    if len(images) != 10 or len(actual_text) != 10:
-        CustomLogger.security(f"Blocked verification request: Invalid drawing count ({len(images)}) or text length ({len(actual_text)}).")
-        return False
-        
-    temp_files = []
-    verified_characters = 0
-    
+    temp_path = None
     try:
-        for i in range(10):
-            step_start = time.time()
-            base64_img = images[i]
-            target_char = actual_text[i]
+        # --- 1. PREPROCESSING PIPELINE ---
+        cnn_tensor, pil_ocr_image, temp_path = preprocess_canvas_image(base64_img, char_index=char_index, save_temp=False)
             
-            # --- 1. PREPROCESSING PIPELINE ---
-            # Preprocess to get PyTorch CNN tensor, clean PIL image for EasyOCR, and temp file path
-            cnn_tensor, pil_ocr_image, temp_path = preprocess_canvas_image(base64_img, char_index=i, save_temp=True)
-            if temp_path:
-                temp_files.append(temp_path)
-                
-            # --- 2. TARGET-CHARACTER-BASED MODEL ROUTING ---
-            model_type = get_character_model_type(target_char)
-            
-            # --- 3. RUN MODEL PREDICTION ---
-            cnn_pred, cnn_conf = predict_cnn(cnn_tensor, model_type)
-            
-            # --- 4. RUN OCR PREDICTION ---
-            ocr_pred, ocr_conf = predict_ocr(pil_ocr_image, target_char)
-            
-            # --- 5. HYBRID ENSEMBLE DECISION LOGIC ---
-            if ocr_pred == "":
+        # --- 2. TARGET-CHARACTER-BASED MODEL ROUTING ---
+        model_type = get_character_model_type(target_char)
+        
+        # --- 3. RUN MODEL PREDICTION ---
+        cnn_pred, cnn_conf = predict_cnn(cnn_tensor, model_type)
+        
+        # --- 4. RUN OCR PREDICTION ---
+        ocr_pred, ocr_conf = predict_ocr(pil_ocr_image, target_char)
+        
+        # --- 5. HYBRID ENSEMBLE DECISION LOGIC ---
+        if ocr_pred == "":
+            final_pred = cnn_pred
+            final_conf = cnn_conf
+        else:
+            if ocr_pred == cnn_pred:
+                final_pred = ocr_pred
+                final_conf = max(ocr_conf, cnn_conf)
+            elif ocr_conf > 0.75:
+                final_pred = ocr_pred
+                final_conf = ocr_conf
+            elif cnn_conf > 0.85:
                 final_pred = cnn_pred
                 final_conf = cnn_conf
             else:
-                if ocr_pred == cnn_pred:
-                    final_pred = ocr_pred
-                    final_conf = max(ocr_conf, cnn_conf)
-                elif ocr_conf > 0.75:
-                    final_pred = ocr_pred
-                    final_conf = ocr_conf
-                elif cnn_conf > 0.85:
-                    final_pred = cnn_pred
-                    final_conf = cnn_conf
-                else:
-                    final_pred = ocr_pred
-                    final_conf = ocr_conf
-            
-            # Apply case-sensitivity matching
-            is_correct = (final_pred == target_char)
-            
-            # Reject if confidence is too low to prevent random scribble hacks
-            if final_conf < CNN_CONFIDENCE_THRESHOLD:
-                is_correct = False
-                
-            if is_correct:
-                verified_characters += 1
-                
-            # Step timing
-            step_elapsed = time.time() - step_start
-            
-            # --- 6. LOGGING SYSTEM ---
-            CustomLogger.log_prediction(
-                char_idx=i,
-                target_char=target_char,
-                cnn_pred=cnn_pred,
-                cnn_conf=cnn_conf,
-                ocr_pred=ocr_pred if ocr_pred else "N/A",
-                ocr_conf=ocr_conf,
-                final_pred=final_pred,
-                is_correct=is_correct,
-                elapsed_time=step_elapsed
-            )
-            
-        # Final result check: Success if at least 8 out of 10 characters verified
-        is_success = (verified_characters >= 8)
-        total_elapsed = time.time() - start_time
+                final_pred = ocr_pred
+                final_conf = ocr_conf
         
-        if is_success:
-            CustomLogger.success(f"CAPTCHA authentication successful! Verified {verified_characters}/10 characters. (Threshold: >=8). Total time: {total_elapsed:.2f}s")
-        else:
-            CustomLogger.warning(f"CAPTCHA authentication failed. Verified {verified_characters}/10 characters. (Threshold: >=8). Total time: {total_elapsed:.2f}s")
+        # Apply case-sensitivity matching
+        is_correct = (final_pred == target_char)
+        
+        # Reject if confidence is too low to prevent random scribble hacks
+        if final_conf < CNN_CONFIDENCE_THRESHOLD:
+            is_correct = False
             
-        return is_success
+        # Step timing
+        step_elapsed = time.time() - start_time
+        
+        # --- 6. LOGGING SYSTEM ---
+        CustomLogger.log_prediction(
+            char_idx=char_index,
+            target_char=target_char,
+            cnn_pred=cnn_pred,
+            cnn_conf=cnn_conf,
+            ocr_pred=ocr_pred if ocr_pred else "N/A",
+            ocr_conf=ocr_conf,
+            final_pred=final_pred,
+            is_correct=is_correct,
+            elapsed_time=step_elapsed
+        )
+        
+        return {
+            "predicted_text": final_pred,
+            "confidence": float(final_conf),
+            "is_correct": is_correct,
+            "processing_time": step_elapsed
+        }
         
     except Exception as e:
-        CustomLogger.error(f"Encountered exception during CAPTCHA verification loop: {e}")
-        return False
+        CustomLogger.error(f"Encountered exception during image processing: {e}")
+        return {
+            "predicted_text": "ERROR",
+            "confidence": 0.0,
+            "is_correct": False,
+            "processing_time": time.time() - start_time
+        }
         
     finally:
         # --- 7. AUTOMATIC CLEANUP OF TEMPORARY IMAGES ---
-        # This keeps the server filesystem clean and optimized
-        time.sleep(0.5) # Small sleep to ensure files are released from PIL/other handles
-        for path in temp_files:
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception as cleanup_err:
-                    CustomLogger.warning(f"Failed to delete temp file '{path}': {cleanup_err}")
-        CustomLogger.info("Temporary CAPTCHA drawing audit files auto-cleaned successfully.")
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_err:
+                CustomLogger.warning(f"Failed to delete temp file '{temp_path}': {cleanup_err}")
+
+def captcha_test(images, actual_text):
+    """Legacy bulk processor (deprecated in favor of pipelined architecture)."""
+    verified_characters = 0
+    for i in range(10):
+        result = process_single_image(images[i], actual_text[i], i)
+        if result["is_correct"]:
+            verified_characters += 1
+    return verified_characters >= 8

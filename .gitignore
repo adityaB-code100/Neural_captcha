@@ -11,3 +11,4 @@ venv/
 
 # VS Code settings
 .vscode/
+setup.py

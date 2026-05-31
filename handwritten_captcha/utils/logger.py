@@ -42,7 +42,7 @@ class CustomLogger:
         Prints a structured table in the console for each character prediction.
         """
         color = CustomLogger.GREEN if is_correct else CustomLogger.RED
-        status = "✓ MATCHED" if is_correct else "✗ MISMATCH"
+        status = "[PASS] MATCHED" if is_correct else "[FAIL] MISMATCH"
         
         print("\n" + "="*70)
         print(f"{CustomLogger.BOLD}{CustomLogger.CYAN}CHARACTER DRAWING #{char_idx + 1} AUDIT REPORT{CustomLogger.END}")

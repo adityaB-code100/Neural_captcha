@@ -1,12 +1,13 @@
 import os
+import uuid
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_cors import CORS
 
-
 from handwritten_captcha.config import settings
 from handwritten_captcha.utils.captcha_logic import init_session_captcha, get_session_captcha, clear_session_captcha
-from handwritten_captcha.utils.engine import captcha_test
 from handwritten_captcha.utils.logger import CustomLogger
+from handwritten_captcha.utils.buffer_store import create_session, get_session, add_image_to_session
+from handwritten_captcha.utils.task_queue import submit_image_task
 
 # Initialize Flask with custom paths pointing into the modular folder
 app = Flask(
@@ -14,28 +15,21 @@ app = Flask(
     template_folder='handwritten_captcha/templates',
     static_folder='handwritten_captcha/static'
 )
-app.config['BASE_URL'] = os.getenv("BASE_URL")
+app.config['BASE_URL'] = os.getenv("BASE_URL", "")
 # Enable CORS for secure AJAX calls
-CORS(app)
+CORS(app, supports_credentials=True)
 
-# Encryption key for securing sessions (Production fallback style)
+# Encryption key for securing sessions
 app.secret_key = os.environ.get('SECRET_KEY', 'aethera_secops_quantum_super_key_2026')
 
 @app.route('/')
 def index():
-    """
-    Gateway login gate. Redirects logged in users to the dashboard.
-    """
     if session.get(settings.SESSION_USER_LOGGED_IN):
         return redirect(url_for('dashboard'))
-    return render_template('index.html',BASE_URL=app.config['BASE_URL'])
+    return render_template('index.html', BASE_URL=app.config['BASE_URL'])
 
 @app.route('/dashboard')
 def dashboard():
-    """
-    Futuristic corporate landing page for Aethera Dynamics.
-    Secured: Redirects unauthorized users back to gateway login.
-    """
     if not session.get(settings.SESSION_USER_LOGGED_IN):
         CustomLogger.security("Blocked unauthorized access attempt to /dashboard.")
         return redirect(url_for('index'))
@@ -43,9 +37,6 @@ def dashboard():
 
 @app.route('/logout')
 def logout():
-    """
-    Session termination route. Logs the user out and wipes credentials.
-    """
     session.pop(settings.SESSION_USER_LOGGED_IN, None)
     clear_session_captcha()
     CustomLogger.info("User logged out. Session variables terminated.")
@@ -53,23 +44,20 @@ def logout():
 
 @app.route('/api/generate_captcha', methods=['GET'])
 def generate_captcha():
-    """
-    Secured CAPTCHA generation API.
-    Generates a 6-character random token, stores it in Flask session as the
-    only source of truth, and returns it for visual drawing display.
-    """
     try:
-        # Generate and save CAPTCHA in session
         captcha_text = init_session_captcha()
         
-        # Log challenge generation in the backend for audits
-        CustomLogger.info(f"System generated new CAPTCHA challenge target: '{captcha_text}'")
+        # Create a unique session ID for pipelined processing
+        session_id = uuid.uuid4().hex
+        create_session(session_id, captcha_text)
         
-        # Split into characters array for the multi-step canvas draw workflow
+        CustomLogger.info(f"System generated new CAPTCHA challenge target: '{captcha_text}' with session {session_id}")
+        
         chars_list = list(captcha_text)
         
         return jsonify({
             'status': 'success',
+            'session_id': session_id,
             'captcha_chars': chars_list
         })
     except Exception as e:
@@ -79,80 +67,81 @@ def generate_captcha():
             'message': 'Failed to initialize verification gate.'
         }), 500
 
+@app.route('/api/submit_image', methods=['POST'])
+def submit_image():
+    """
+    Receives a single image and queues it for processing.
+    """
+    data = request.get_json() or {}
+    session_id = data.get('session_id')
+    image_number = data.get('image_number')
+    image_data = data.get('image')
+    
+    if not session_id or image_number is None or not image_data:
+        return jsonify({'status': 'error', 'message': 'Missing data'}), 400
+        
+    # Add to buffer and queue
+    if add_image_to_session(session_id, image_number, image_data):
+        submit_image_task(session_id, image_number)
+        return jsonify({'status': 'queued', 'message': f'Image {image_number} queued for processing.'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Duplicate image or session not found.'}), 400
+
+@app.route('/api/session_status/<session_id>', methods=['GET'])
+def session_status(session_id):
+    """
+    Returns the current status of the session and all its images.
+    """
+    sess_data = get_session(session_id)
+    if not sess_data:
+        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+        
+    return jsonify({
+        'status': 'success',
+        'session_id': sess_data['session_id'],
+        'total_processed': sess_data['total_processed'],
+        'correct': sess_data['correct'],
+        'failed': sess_data['failed'],
+        'final_decision': sess_data['final_decision'],
+        'images': sess_data['images']
+    })
+
 @app.route('/api/verify_captcha', methods=['POST'])
 def verify_captcha():
     """
-    Secure CAPTCHA verification API.
-    Accepts credentials and drawn canvas images. 
-    Verifies drawings using the modular captcha_test decision engine
-    against the actual CAPTCHA target saved in the server-side session.
+    Final authorization gate. Polled or called once the final decision is PASS.
     """
     data = request.get_json() or {}
     username = data.get('username')
     password = data.get('password')
-    images = data.get('images', [])
+    session_id = data.get('session_id')
     
-    # 1. Credentials Validation (System simulation for credentials verification)
     if not username or not password:
+        return jsonify({'status': 'error', 'message': 'Invalid credentials. Access Denied.'}), 400
+        
+    sess_data = get_session(session_id)
+    if not sess_data:
+        return jsonify({'status': 'error', 'message': 'Session not found or expired.'}), 400
+        
+    if sess_data['final_decision'] == 'Pending':
+        return jsonify({'status': 'pending', 'message': 'Decision is still pending. Wait for OCR jobs.'})
+    
+    if sess_data['final_decision'] == 'Pass':
+        clear_session_captcha()
+        session[settings.SESSION_USER_LOGGED_IN] = True
         return jsonify({
-            'status': 'error',
-            'message': 'Invalid credentials. Access Denied.'
-        }), 400
-        
-    # 2. Session Integrity Check
-    actual_text = get_session_captcha()
-    if not actual_text:
-        CustomLogger.security("Blocked verification request: Expired or uninitialized session.")
-        return jsonify({
-            'status': 'error',
-            'message': 'Session expired. Please regenerate challenge.'
-        }), 400
-        
-    # 3. Validation Image List check
-    if len(images) != 10:
-        CustomLogger.security("Blocked verification request: Incomplete drawings package.")
-        return jsonify({
-            'status': 'error',
-            'message': 'Incomplete drawings. Ensure all 10 letters are drawn.'
-        }), 400
-        
-    # 4. CAPTCHA verification through modular pipeline
-    # The client NEVER sends the target text back. The backend session remains the source of truth!
-    try:
-        is_verified = captcha_test(images, actual_text)
-        
-        if is_verified:
-            # Wipe CAPTCHA from session on successful verification to prevent reuse attacks
-            clear_session_captcha()
-            
-            # Authorize User session
-            session[settings.SESSION_USER_LOGGED_IN] = True
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'Authorization granted.',
-                'redirect': url_for('dashboard')
-            })
-        else:
-            # Increment attempts or fail-safe regeneration trigger
-            clear_session_captcha() # Force regenerations on error to block brute force
-            return jsonify({
-                'status': 'error',
-                'message': 'Neural verification failed. Drawings did not match system expectations.'
-            }), 401
-            
-    except Exception as e:
-        CustomLogger.error(f"Server error encountered during API verification: {e}")
+            'status': 'success',
+            'message': 'Authorization granted.',
+            'redirect': url_for('dashboard')
+        })
+    else:
         clear_session_captcha()
         return jsonify({
             'status': 'error',
-            'message': 'Server encountered an error processing drawings.'
-        }), 500
+            'message': 'Neural verification failed. Drawings did not match system expectations.'
+        }), 401
 
 if __name__ == '__main__':
-    # Log system initialization status
     CustomLogger.info("Starting SECURE X Portal...")
     CustomLogger.info("Lazy-loading ML engines and initializing models config...")
-    
-    # Run the secure Flask server locally
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, use_reloader=False, host='0.0.0.0', port=5000)
